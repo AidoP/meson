@@ -58,8 +58,8 @@ else:
         defaults['objc'] = ['clang']
         defaults['objcpp'] = ['clang++']
     elif is_zos():
-        defaults['c'] = ['ibm-clang64', 'ibm-clang', 'clang64', 'clang']
-        defaults['cpp'] = ['ibm-clang++64', 'ibm-clang++', 'clang++64', 'clang++']
+        defaults['c'] = ['ibm-clang64', 'ibm-clang', 'clang64', 'clang', 'xlc']
+        defaults['cpp'] = ['ibm-clang++64', 'ibm-clang++', 'clang++64', 'clang++', 'xlc']
         defaults['objc'] = []
         defaults['objcpp'] = []
     else:
@@ -327,6 +327,8 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
         elif compiler_name in {'icl', 'icl.exe'}:
             # if you pass anything to icl you get stuck in a pager
             arg = ''
+        elif 'xlc' in compiler_name:
+            arg = '-qversion'
         else:
             arg = '--version'
 
@@ -639,6 +641,14 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             return cls(
                 ccache, compiler, tasking_version, for_machine, is_cross, info,
                 full_version=full_version, linker=linker)
+
+        if 'XL C/C++' in out:
+            cls = c.XlcCCompiler if lang == 'c' else cpp.XlcCPPCompiler
+            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            linker = guess_nix_linker(env, compiler, cls, version, for_machine)
+            return cls(
+                ccache, compiler, version, for_machine, is_cross, info,
+                full_version=full_version.strip(), linker=linker)
 
     _handle_exceptions(popen_exceptions, compilers)
     raise EnvironmentException(f'Unknown compiler {compilers}')

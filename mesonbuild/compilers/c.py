@@ -16,6 +16,7 @@ from .mixins.apple import AppleCompilerMixin, AppleCStdsMixin
 from .mixins.clike import CLikeCompiler
 from .mixins.ccrx import CcrxCompiler
 from .mixins.xc16 import Xc16Compiler
+from .mixins.xlc import XlcCompiler
 from .mixins.compcert import CompCertCompiler
 from .mixins.ti import TICompiler
 from .mixins.arm import ArmCompiler, ArmclangCompiler
@@ -53,6 +54,7 @@ else:
 ALL_STDS = ['c89', 'c9x', 'c90', 'c99', 'c1x', 'c11', 'c17', 'c18', 'c2x', 'c23', 'c2y']
 ALL_STDS += [f'gnu{std[1:]}' for std in ALL_STDS]
 ALL_STDS += ['iso9899:1990', 'iso9899:199409', 'iso9899:1999', 'iso9899:2011', 'iso9899:2017', 'iso9899:2018']
+ALL_STDS += ['xl89', 'xl99', 'xl1x']
 
 
 class CCompiler(CLikeCompiler, Compiler):
@@ -778,3 +780,45 @@ class TaskingCCompiler(TaskingCompiler, CCompiler):
         CCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
                            info, linker=linker, full_version=full_version)
         TaskingCompiler.__init__(self)
+
+
+class XlcCCompiler(XlcCompiler, CCompiler):
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice,
+                 is_cross: bool, info: 'MachineInfo',
+                 linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        CCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
+                           info, linker=linker, full_version=full_version)
+        XlcCompiler.__init__(self)
+
+    def get_options(self) -> 'MutableKeyedOptionDictType':
+        opts = super().get_options()
+        key = self.form_compileropt_key('std')
+        std_opt = opts[key]
+        assert isinstance(std_opt, options.UserStdOption), 'for mypy'
+        std_opt.set_versions(['c89', 'xl89', 'c99', 'xl99', 'xl1x'])
+        return opts
+
+    def get_option_std_args(self, target: BuildTarget, env: Environment, subproject: T.Optional[str] = None) -> T.List[str]:
+        ext_features = ''
+        if self.info.is_zos():
+            ext_features = ':libext'
+
+        std = self.get_compileropt_value('std', env, target, subproject)
+        assert isinstance(std, str)
+        if std == 'xl1x':
+            return [f'-qlanglvl=ext1x{ext_features}']
+        if std == 'xl99':
+            return [f'-qlanglvl=extc99{ext_features}']
+        if std == 'xl89':
+            return [f'-qlanglvl=extc89{ext_features}']
+        elif std == 'c99':
+            return ['-qlanglvl=stdc99']
+        elif std == 'c89':
+            return ['-qlanglvl=stdc89']
+        elif std == 'none':
+            return []
+        raise MesonException(f'C Compiler does not support -qlanglvl={std}')
+
+    def get_compiler_check_args(self, mode: CompileCheckMode) -> T.List[str]:
+        return self.get_no_optimization_args() + ['-qseverity=E:CCN3296']

@@ -32,6 +32,7 @@ from .mixins.pgi import PGICompiler
 from .mixins.emscripten import EmscriptenMixin
 from .mixins.metrowerks import MetrowerksCompiler
 from .mixins.metrowerks import mwccarm_instruction_set_args, mwcceppc_instruction_set_args
+from .mixins.xlc import XlcCompiler
 
 if T.TYPE_CHECKING:
     from ..options import MutableKeyedOptionDictType
@@ -48,6 +49,7 @@ else:
 ALL_STDS = ['c++98', 'c++0x', 'c++03', 'c++1y', 'c++1z', 'c++11', 'c++14', 'c++17', 'c++2a', 'c++20', 'c++23', 'c++26']
 ALL_STDS += [f'gnu{std[1:]}' for std in ALL_STDS]
 ALL_STDS += ['vc++11', 'vc++14', 'vc++17', 'vc++20', 'vc++latest', 'c++latest']
+ALL_STDS += ['xl++92', 'xl++98', 'xl++0x']
 
 
 def non_msvc_eh_options(eh: str, args: T.List[str]) -> None:
@@ -1127,3 +1129,81 @@ class MetrowerksCPPCompilerEmbeddedPowerPC(MetrowerksCompiler, CPPCompiler):
         if std != 'none':
             args.append('-lang ' + std)
         return args
+
+
+class XlcCPPCompiler(XlcCompiler, CPPCompiler):
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice, is_cross: bool,
+                 info: 'MachineInfo',
+                 linker: T.Optional['DynamicLinker'] = None,
+                 full_version: T.Optional[str] = None):
+        CPPCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
+                             info, linker=linker, full_version=full_version)
+        XlcCompiler.__init__(self)
+
+    def get_options(self) -> 'MutableKeyedOptionDictType':
+        opts = super().get_options()
+
+        key = self.form_compileropt_key('std')
+        std_opt = opts[key]
+        assert isinstance(std_opt, options.UserStdOption), 'for mypy'
+        std_opt.set_versions(['xl++92', 'c++98', 'xl++98', 'xl++0x'])
+
+        key = self.form_compileropt_key('eh')
+        opts[key] = options.UserComboOption(
+            self.make_option_name(key),
+            'C++ exception handling type.',
+            'default',
+            choices=['none', 'default'])
+
+        key = self.form_compileropt_key('rtti')
+        opts[key] = options.UserBooleanOption(
+            self.make_option_name(key),
+            'Enable RTTI',
+            True)
+
+        return opts
+
+    def get_option_std_args(self, target: BuildTarget, env: Environment, subproject: T.Optional[str] = None) -> T.List[str]:
+        ext_features = ''
+        if self.info.is_zos():
+            ext_features = ':libext'
+
+        std = self.get_compileropt_value('std', env, target, subproject)
+        assert isinstance(std, str)
+        if std == 'xl++0x':
+            return [f'-qlanglvl=extended0x{ext_features}']
+        elif std == 'xl++98':
+            return [f'-qlanglvl=extended{ext_features}']
+        elif std == 'c++98':
+            return ['-qlanglvl=strict98']
+        elif std == 'xl++92':
+            return ['-qlanglvl=compat92']
+        elif std == 'none':
+            return []
+        raise MesonException(f'C++ Compiler does not support -qlanglvl={std}')
+
+    def get_option_compile_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
+        args: T.List[str] = []
+
+        rtti = self.get_compileropt_value('rtti', env, target, subproject)
+        eh = self.get_compileropt_value('eh', env, target, subproject)
+
+        assert isinstance(rtti, bool)
+        assert isinstance(eh, str)
+
+        if eh == 'none':
+            args.append('-qnoeh')
+
+        if rtti:
+            # RTTI may not be enabled by default on some language levels.
+            args.append('-qrtti')
+        else:
+            args.append('-qnortti')
+
+        return args
+
+    def get_option_link_args(self, target: BuildTarget, env: Environment, subproject: T.Optional[str] = None) -> T.List[str]:
+        return self.get_option_std_args(target, env, subproject)
+
+    def get_compiler_check_args(self, mode: CompileCheckMode) -> T.List[str]:
+        return []

@@ -190,6 +190,21 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
             v = search_version(o)
 
         linker = linkers.LLVMDynamicLinker(compiler, for_machine, comp_class.LINKER_PREFIX, override, version=v)
+    elif 'IEW5033' in e or 'XL C/C++' in e:
+        # On z/OS the binder does not have a version flag. Instead, the binder
+        # version is tied to the OS version.
+        # For compatibility reasons `uname()` does not return the z/OS version
+        # by default.
+        p, o, e = Popen_safe(['/bin/uname', '-Irv'])
+        if p.returncode != 0:
+            __failed_to_detect_linker(compiler, check_args, o, e)
+        os_release, os_version = o.strip().split(' ')
+        os_release = os_release.split('.')[0].strip('0') or '0'
+        os_version = os_version.strip('0') or '0'
+        version = f'{os_version}.{os_release}'
+        linker = linkers.ZOSDynamicLinker(
+            compiler, for_machine, comp_class.LINKER_PREFIX, override,
+            version=version)
     elif 'GNU' in o or 'GNU' in e:
         gnu_cls: T.Type[GnuDynamicLinker]
         # this is always the only thing on stdout, except for swift
@@ -219,21 +234,6 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
         linker = linkers.AIXDynamicLinker(
             compiler, for_machine, comp_class.LINKER_PREFIX, override,
             version=search_version(e))
-    elif 'IEW5033' in e:
-        # On z/OS the binder does not have a version flag. Instead, the binder
-        # version is tied to the OS version.
-        # For compatibility reasons `uname()` does not return the z/OS version
-        # by default.
-        p, o, e = Popen_safe(['/bin/uname', '-Irv'])
-        if p.returncode != 0:
-            __failed_to_detect_linker(compiler, check_args, o, e)
-        os_release, os_version = o.strip().split(' ')
-        os_release = os_release.split('.')[0].strip('0') or '0'
-        os_version = os_version.strip('0') or '0'
-        version = f'{os_version}.{os_release}'
-        linker = linkers.ZOSDynamicLinker(
-            compiler, for_machine, comp_class.LINKER_PREFIX, override,
-            version=version)
     elif o.startswith('zig ld'):
         linker = linkers.ZigCCDynamicLinker(
             compiler, for_machine, comp_class.LINKER_PREFIX, override, version=v)
