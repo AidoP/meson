@@ -2425,7 +2425,8 @@ class SharedLibrary(BuildTarget):
     def process_kwargs(self, kwargs):
         super().process_kwargs(kwargs)
 
-        if not self.environment.machines[self.for_machine].is_android():
+        machine = self.environment.machines[self.for_machine]
+        if not machine.is_android() and not machine.is_zos():
             # Shared library version
             self.ltversion = T.cast('T.Optional[str]', kwargs.get('version'))
             self.soversion = T.cast('T.Optional[str]', kwargs.get('soversion'))
